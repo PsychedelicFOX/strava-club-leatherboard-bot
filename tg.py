@@ -25,6 +25,7 @@ class StravaBot:
         self.bot_token = self.env.str("BOT_TOKEN")
         self.group_id = self.env.str("GROUP_ID")
         self.club_id = self.env.str("CLUB_ID")
+        self.club_type = self.env.str("CLUB_TYPE", default="CYCLING").upper()
         self.komoot_link = 'https://t.me/KuracToGPX_Bot'
         
         # Initialize bot
@@ -84,13 +85,35 @@ class StravaBot:
         """Format message for specific metric"""
         try:
             emoji = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-            full_metric_names = {
-                'distance': 'Distance',
-                'elev_gain': 'Elevation Gain',
-                'best_activities_distance': 'Longest Ride',
-                'velocity': 'Speed'
-            }
-            message = f"Top 5 by {full_metric_names[metric]}:\n"
+            
+            # Define sport-specific icons and names
+            if self.club_type == "RUNNING":
+                sport_icons = {
+                    'distance': '🏃🏃‍♀️',
+                    'elev_gain': '⛰️',
+                    'best_activities_distance': '🏃‍♂️🏃‍♀️',
+                    'velocity': '⏱️'
+                }
+                full_metric_names = {
+                    'distance': 'Distance',
+                    'elev_gain': 'Elevation Gain',
+                    'best_activities_distance': 'Longest Run',
+                    'velocity': 'Pace'
+                }
+            else:  # CYCLING (default)
+                sport_icons = {
+                    'distance': '🚴',
+                    'elev_gain': '⛰️',
+                    'best_activities_distance': '🚴‍♂️',
+                    'velocity': '⚡'
+                }
+                full_metric_names = {
+                    'distance': 'Distance',
+                    'elev_gain': 'Elevation Gain',
+                    'best_activities_distance': 'Longest Ride',
+                    'velocity': 'Speed'
+                }
+            message = f"{sport_icons[metric]} Top 5 by {full_metric_names[metric]}:\n"
             sorted_athletes = sorted(top_athletes, key=lambda x: x[metric], reverse=True)[:5]
             for index, athlete in enumerate(sorted_athletes, start=1):
                 name = f"[{athlete['athlete_firstname']} {athlete['athlete_lastname']}]({self.athlete_profile_url(athlete['athlete_id'])})"
@@ -99,7 +122,15 @@ class StravaBot:
                 elif metric == 'elev_gain':
                     value = f"{int(athlete[metric])} m"
                 elif metric == 'velocity':
-                    value = f"{athlete[metric] * 3.6:.2f} km/h"  # Convert speed to km/h
+                    if self.club_type == "RUNNING":
+                        # Convert speed to pace (minutes per kilometer)
+                        # velocity is in m/s, so pace = 1000 / (velocity * 60) = 16.67 / velocity
+                        pace_minutes = 16.67 / athlete[metric]
+                        minutes = int(pace_minutes)
+                        seconds = int((pace_minutes - minutes) * 60)
+                        value = f"{minutes}:{seconds:02d} / km"
+                    else:
+                        value = f"{athlete[metric] * 3.6:.2f} km/h"  # Convert speed to km/h
                 else:
                     value = athlete[metric]
                 rank_emoji = emoji[index - 1] if index <= 5 else str(index)
@@ -126,7 +157,9 @@ class StravaBot:
             for metric, url in metrics.items():
                 top_athletes = self.get_top_athletes(url, metric)
                 message += self.format_message(top_athletes, metric) + "\n"
-            message += f"🚴[Strava Club Link](https://www.strava.com/clubs/{self.club_id}) | 🤖[Komoot To GPX Bot](https://t.me/KuracToGPX_Bot)"
+            # Choose sport-specific icon for club link
+            club_icon = "🏃🏃‍♀️" if self.club_type == "RUNNING" else "🚴"
+            message += f"{club_icon}[Strava Club Link](https://www.strava.com/clubs/{self.club_id}) | 🤖[Komoot To GPX Bot](https://t.me/KuracToGPX_Bot)"
             return message
         except Exception as e:
             logger.error(f"Error in format_combined_message: {e}")
@@ -159,9 +192,17 @@ class StravaBot:
         @self.bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             try:
-                welcome_message = """
-Hello! I am the Strava Club Weekly Top Bot. 🚴‍♂️🏅
-Use /weektop to get the top 5 club members of the week by distance, elevation gain, longest ride, and speed.
+                # Choose sport-specific welcome message
+                if self.club_type == "RUNNING":
+                    sport_icon = "🏃‍♂️🏃‍♀️"
+                    activity_name = "run"
+                else:
+                    sport_icon = "🚴‍♂️"
+                    activity_name = "ride"
+                
+                welcome_message = f"""
+Hello! I am the Strava Club Weekly Top Bot. {sport_icon}🏅
+Use /weektop to get the top 5 club members of the week by distance, elevation gain, longest {activity_name}, and {'pace' if self.club_type == 'RUNNING' else 'speed'}.
 You can also use me in inline mode for quick access.
 
 Need help or have questions? Feel free to PM @iceflame.

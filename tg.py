@@ -3,6 +3,8 @@ import json
 import logging
 import requests
 import telebot
+import random
+import nicknames
 from telebot import types
 from environs import Env
 from cachetools import TTLCache, cached
@@ -41,6 +43,13 @@ class StravaBot:
         if self.env.bool("SCHEDULE"):
             self._start_scheduler()
 
+    def load_random_image_url(self):
+        """Load list of images from environment variable and return any random one """
+        try:
+            return random.choice(json.loads(self.env.str("IMAGE_URLS")))
+        except json.JSONDecodeError:
+            logger.error("Error decoding IMAGE_URLS")
+            return []
     def load_cookies(self):
         """Load cookies from environment variable"""
         try:
@@ -134,7 +143,8 @@ class StravaBot:
                 else:
                     value = athlete[metric]
                 rank_emoji = emoji[index - 1] if index <= 5 else str(index)
-                message += f"{rank_emoji} {name}: {value}\n"
+                tg_nickname = nicknames.strava2tg.get(athlete['athlete_id'], "@johndoe")
+                message += f"{rank_emoji} {name} ({tg_nickname}): {value}\n"
             return message
         except Exception as e:
             logger.error(f"Error in format_message: {e}")
@@ -159,7 +169,7 @@ class StravaBot:
                 message += self.format_message(top_athletes, metric) + "\n"
             # Choose sport-specific icon for club link
             club_icon = "🏃🏃‍♀️" if self.club_type == "RUNNING" else "🚴"
-            message += f"{club_icon}[Strava Club Link](https://www.strava.com/clubs/{self.club_id}) | 🤖[Komoot To GPX Bot](https://t.me/KuracToGPX_Bot)"
+            message += f"{club_icon}[Учавствовать в этом безобразии](https://www.strava.com/clubs/{self.club_id})"
             return message
         except Exception as e:
             logger.error(f"Error in format_combined_message: {e}")
@@ -170,7 +180,7 @@ class StravaBot:
         try:
             response_message = self.format_combined_message()
             if self.env.bool("IMAGE"):
-                image_url = self.env.str("IMAGE_URL")
+                image_url = self.load_random_image_url()
                 self.bot.send_photo(chat_id, image_url, caption=response_message, parse_mode='Markdown')
             else:
                 self.bot.send_message(chat_id, response_message, parse_mode='Markdown', disable_web_page_preview=True)
